@@ -187,6 +187,31 @@ contract TestModuleTest is Test {
         assertEq(unicornToken.balanceOf(bob), 0);
     }
 
+    function testCanNotUseSignatureFromOtherDomain() public { 
+
+        ERC20 unicornToken2 = new ERC20("UNICORN2", "UNT2");
+        writeTokenBalance(address(safe), address(unicornToken2), 1000 * 1e18);
+
+        TestModule testModule2 = new TestModule(address(unicornToken2), address(safe));
+        bytes memory enableModuleData2 = abi.encodeWithSignature("enableModule(address)", address(testModule2));
+        executeSafeTransaction(address(safe), 0, enableModuleData2, Enum.Operation.Call);  
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+
+        uint256 amountToTransfer = 100*1e18;
+        uint256 deadline = block.timestamp + 1_000;
+
+        bytes32 allowanceDataHash = testModule2.generateAllowanceDataHash(amountToTransfer, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, allowanceDataHash);
+
+        vm.startPrank(bob);
+        vm.expectRevert("GS026");
+        testModule.withdrawToken(amountToTransfer, deadline, bob, r, s, v);
+        vm.stopPrank();
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+    }
+
     /*
     *   Helper functions
     */
