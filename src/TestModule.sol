@@ -28,13 +28,23 @@ interface IGnosisSafe {
     view;
 }
 
+/// @title Test Module - A test module that
+/// @author Filipp Makarov - <filippvmakarov@gmail.com>
+/// @dev This design is unsafe! In the "Solidity Challenge" document I received via email it is stated, that
+///      "Now they can generate a signature which allows ANYONE to withdraw Unicorn tokens from their Safe."
+///      To allow ANYONE use the signature, there should be no `spender` address in the Allowance.
+///      With this design the signature can be picked up from mempool and the transaction can be frontrunned.
+///      Better way to implement this module would be with specifiyng the `spender` for each Allowance, 
+///      so the allowance can only be used by a `spender` specified by a Safe owner when signing the data hash. 
+///      Thus frontrunning will not be an issue. 
+
 contract TestModule is EIP712 {
 
     bytes32 private constant ALLOWANCE_TYPEHASH = keccak256(bytes("Allowance(uint256 nonce,uint256 amount,uint256 deadline)"));
 
     uint256 private nonce;
-    address managedToken;
-    IGnosisSafe safe;
+    address public managedToken;
+    IGnosisSafe public safe;
 
     struct Allowance {
         uint256 nonce;
@@ -42,11 +52,22 @@ contract TestModule is EIP712 {
         uint256 deadline;
     }
 
+    /**
+     * @dev Generates data hash, that owner will sign
+     * @param _managedToken token to be transferred with this Module
+     * @param _safeAddress Safe that this module is working with
+     */
     constructor(address _managedToken, address _safeAddress) EIP712("Test Module", "1") {
         managedToken = _managedToken;
         safe = IGnosisSafe(_safeAddress);
     }
 
+    /**
+     * @dev Generates data hash, that owner will sign
+     * @param amount amount of token to be allowed for withdrawal
+     * @param deadline timestamp, after which the signature will be expired and won't allow to withdraw tokens
+     * @return bytes32 typed data hash, signed according to EIP-712
+     */
     function generateAllowanceDataHash(uint256 amount, uint256 deadline) public view returns (bytes32) {
         bytes32 allowanceHash = keccak256(abi.encode(
             ALLOWANCE_TYPEHASH,
@@ -57,11 +78,20 @@ contract TestModule is EIP712 {
         return _hashTypedDataV4(allowanceHash);
     }
 
-    function withdrawToken(uint256 amount, uint256 deadline, bytes32 r, bytes32 s, uint8 v) public {
+     /**
+     * @dev Withdraws tokens from Safe and sends to the caller.
+     * @param amount amount of token to be allowed for withdrawal
+     * @param deadline timestamp, after which the signature will be expired and won't allow to withdraw tokens
+     * @param to beneficiary. This address will receive tokens.
+     * @param r part of an ECDSA signature (x-coordinate of a random point)
+     * @param s part of an ECDSA signature (signature proof)
+     * @param v part of an ECDSA signature (recovery id)
+     */
+    function withdrawToken(uint256 amount, uint256 deadline, address to, bytes32 r, bytes32 s, uint8 v) public {
         require(block.timestamp <= deadline, "Signature expired");
         safe.checkNSignatures(generateAllowanceDataHash(amount, deadline), "", abi.encodePacked(r,s,v), 1);
         nonce++;
-        bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", msg.sender, amount);
+        bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", to, amount);
         require(safe.execTransactionFromModule(managedToken, 0, data, Enum.Operation.Call), "Could not execute token transfer");
     }
 
