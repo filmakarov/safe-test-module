@@ -28,7 +28,8 @@ interface IGnosisSafe {
     view;
 }
 
-/// @title Test Module - A test module that
+/// @title Test Module - A test module that allows accounts that are not related to the Safe to withdraw
+///        a predetermined amount of a specific token using EIP-712 signature issued by the Safe owner.
 /// @author Filipp Makarov - <filippvmakarov@gmail.com>
 /// @dev This design is unsafe! In the "Solidity Challenge" document I received via email it is stated, that
 ///      "Now they can generate a signature which allows ANYONE to withdraw Unicorn tokens from their Safe."
