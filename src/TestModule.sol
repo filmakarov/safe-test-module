@@ -3,7 +3,7 @@ pragma solidity >=0.8.0 <0.9.0;
 
 import "@safe/common/Enum.sol";
 
-interface GnosisSafe {
+interface IGnosisSafe {
     /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
     /// @param to Destination address of module transaction.
     /// @param value Ether value of module transaction.
@@ -17,9 +17,9 @@ interface GnosisSafe {
 
 contract TestModule {
 
-    function tokenTransfer(GnosisSafe safe, address token, address to, uint amount) public {
+    function tokenTransfer(address safe, address token, address to, uint amount) public {
         bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", to, amount);
-        require(safe.execTransactionFromModule(token, 0, data, Enum.Operation.Call), "Could not execute token transfer");
+        require(IGnosisSafe(safe).execTransactionFromModule(token, 0, data, Enum.Operation.Call), "Could not execute token transfer");
     }
 
 }
