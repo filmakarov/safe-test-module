@@ -47,29 +47,125 @@ contract TestModuleTest is Test {
         safe = GnosisSafe(payable(address(safeProxy)));
         safe.setup(owners, 1, address(0), "0x", address(0), address(0), 0, payable(address(0)));
 
-        console.log("threshold: ", safe.threshold());
-
         unicornToken = new ERC20("UNICORN", "UNT");
         writeTokenBalance(address(safe), address(unicornToken), 10_000 * 1e18);
 
-        testModule = new TestModule();
+        testModule = new TestModule(address(unicornToken), address(safe));
 
         bytes memory enableModuleData = abi.encodeWithSignature("enableModule(address)", address(testModule));
         executeSafeTransaction(address(safe), 0, enableModuleData, Enum.Operation.Call);
 
     }
 
-    function testCanExecuteTransactionFromModule() public {   
+    function testCanTransferUsingModule() public {   
 
         assertEq(unicornToken.balanceOf(bob), 0);
 
         uint256 amountToTransfer = 100*1e18;
+
+        uint256 deadline = block.timestamp + 1_000;
+
+        bytes32 allowanceDataHash = testModule.generateAllowanceDataHash(amountToTransfer, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, allowanceDataHash);
         
-        vm.prank(alice);
-        testModule.tokenTransfer(address(safe), address(unicornToken), bob, amountToTransfer);
+        vm.prank(bob);
+        testModule.withdrawToken(amountToTransfer, deadline, r, s, v);
 
         assertEq(unicornToken.balanceOf(bob), amountToTransfer);
     }
+
+    function testCanNotReuseSignature() public {   
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+        uint256 amountToTransfer = 100*1e18;
+        uint256 deadline = block.timestamp + 1_000;
+
+        bytes32 allowanceDataHash = testModule.generateAllowanceDataHash(amountToTransfer, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, allowanceDataHash);
+        
+        vm.prank(bob);
+        testModule.withdrawToken(amountToTransfer, deadline, r, s, v);
+        assertEq(unicornToken.balanceOf(bob), amountToTransfer);
+
+        vm.startPrank(bob);
+        vm.expectRevert("GS026");
+        testModule.withdrawToken(amountToTransfer, deadline, r, s, v);
+        vm.stopPrank();
+    }
+
+    function testCanNotSpoofAmount() public {   
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+        uint256 amountToTransfer = 100*1e18;
+        uint256 deadline = block.timestamp + 1_000;
+
+        bytes32 allowanceDataHash = testModule.generateAllowanceDataHash(amountToTransfer, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, allowanceDataHash);
+
+        vm.startPrank(bob);
+        vm.expectRevert("GS026");
+        testModule.withdrawToken(amountToTransfer+100*1e18, deadline, r, s, v);
+        vm.stopPrank();
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+    }
+
+    function testCanNotSpoofDeadline() public {   
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+        uint256 amountToTransfer = 100*1e18;
+        uint256 deadline = block.timestamp + 10;
+
+        bytes32 allowanceDataHash = testModule.generateAllowanceDataHash(amountToTransfer, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, allowanceDataHash);
+
+        vm.startPrank(bob);
+        vm.expectRevert("GS026");
+        testModule.withdrawToken(amountToTransfer, deadline+1000, r, s, v);
+        vm.stopPrank();
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+    }
+
+    function testCanNotUseExpiredSignature() public {   
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+        uint256 amountToTransfer = 100*1e18;
+        uint256 deadline = block.timestamp + 1_000;
+
+        bytes32 allowanceDataHash = testModule.generateAllowanceDataHash(amountToTransfer, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, allowanceDataHash);
+
+        vm.warp(deadline+100);
+
+        vm.startPrank(bob);
+        vm.expectRevert("Signature expired");
+        testModule.withdrawToken(amountToTransfer, deadline, r, s, v);
+        vm.stopPrank();
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+    }
+
+    function testCanNotUseOtherPersonSignature() public {   
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+        uint256 amountToTransfer = 100*1e18;
+        uint256 deadline = block.timestamp + 1_000;
+
+        bytes32 allowanceDataHash = testModule.generateAllowanceDataHash(amountToTransfer, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(bobPrivateKey, allowanceDataHash);
+
+        vm.startPrank(bob);
+        vm.expectRevert("GS026");
+        testModule.withdrawToken(amountToTransfer, deadline, r, s, v);
+        vm.stopPrank();
+
+        assertEq(unicornToken.balanceOf(bob), 0);
+    }
+
+    /*
+    *   Helper functions
+    */
 
     function writeTokenBalance(address who, address token, uint256 amt) internal {
         stdstore
